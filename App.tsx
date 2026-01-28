@@ -1,3 +1,5 @@
+// Add this to the top line if missing
+import './index.css';
 import React, { useState, useMemo } from 'react';
 import { SimulationParams, WeatherCondition, LoadOverride, SystemScenario, SystemStrategy, TariffOverride } from './types';
 import { runSimulation } from './utils/engine';
