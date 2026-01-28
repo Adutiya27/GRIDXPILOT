@@ -92,9 +92,11 @@ export const analyzeSimulation = async (result: SimulationResult, params: Simula
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash', // FIX 3: Use stable model name
-      contents: prompt,
+   // Find this block
+const response = await ai.models.generateContent({
+  model: 'gemini-1.5-flash-001', // <--- UPDATED LINE
+  contents: prompt,
+  // ... rest of code
       config: {
         temperature: 0.3, 
       }
