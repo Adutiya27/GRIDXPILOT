@@ -6,11 +6,13 @@ interface ScannedWeatherData {
   hourlyCloud: number[];
 }
 
+// --- Helper: Convert File to Base64 for Gemini ---
 const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } }> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64String = reader.result as string;
+      // Remove the "data:image/xxx;base64," prefix
       const base64Data = base64String.split(',')[1];
       resolve({
         inlineData: {
@@ -24,11 +26,16 @@ const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: s
   });
 };
 
+// --- Main Function: Analyze Graph ---
 export const parseWeatherGraph = async (file: File): Promise<ScannedWeatherData> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found");
-  
+  // FIX 1: Use Vite-compatible Environment Variable
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error("API Key not found in Netlify environment variables");
+   
+  // Initialize SDK
   const ai = new GoogleGenAI({ apiKey });
+  
+  // Convert image file to AI-readable format
   const imagePart = await fileToGenerativePart(file);
 
   const prompt = `
@@ -42,11 +49,18 @@ export const parseWeatherGraph = async (file: File): Promise<ScannedWeatherData>
     Interpolate visually if specific hours are not labeled.
   `;
 
+  // FIX 2 & 3: Use stable model and correct 'contents' structure
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-        parts: [imagePart, { text: prompt }]
-    },
+    model: 'gemini-1.5-flash', 
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          imagePart,       // The Image
+          { text: prompt } // The Instruction
+        ]
+      }
+    ],
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -62,7 +76,7 @@ export const parseWeatherGraph = async (file: File): Promise<ScannedWeatherData>
   });
 
   if (!response.text) throw new Error("No data returned from vision analysis.");
-  
+   
   const data = JSON.parse(response.text);
 
   // Validation to ensure strictly 24 items (Engine requirement)
