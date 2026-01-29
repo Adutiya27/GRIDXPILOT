@@ -1,5 +1,3 @@
-// Add this to the top line if missing
-
 import React, { useState, useMemo } from 'react';
 import { SimulationParams, WeatherCondition, LoadOverride, SystemScenario, SystemStrategy, TariffOverride } from './types';
 import { runSimulation } from './utils/engine';
@@ -36,7 +34,7 @@ const App: React.FC = () => {
     strategy: SystemStrategy.Arbitrage,
     isDynamicTariff: true,
     
-    // NEW: 24h Data Arrays (Default: Agra Summer Profile)
+    // 24h Data Arrays (Default Profile)
     hourlyTemp: generateCurve(28, 42, 14, 'bell'),      // 28C night -> 42C day
     hourlyHumidity: generateCurve(30, 70, 4, 'inverse'), // 70% morning -> 30% afternoon
     hourlyCloud: Array(24).fill(5),                     // 5% cloud cover static baseline
@@ -118,7 +116,6 @@ const App: React.FC = () => {
           <FinancialAudit audit={results.audit} feedInTariff={params.feedInTariffINR} />
         </section>
 
-        {/* Strategist moved here as requested */}
         <section className="animate-slide-up stagger-2">
           <NeuralStrategist 
             analysis={aiAnalysis} 
