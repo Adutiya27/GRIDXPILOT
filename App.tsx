@@ -7,7 +7,7 @@ import DispatchTable from './components/DispatchTable';
 import Visualizations from './components/Visualizations';
 import NeuralStrategist from './components/NeuralStrategist';
 import { analyzeSimulation } from './services/geminiService';
-import { ShieldAlert, Cpu, Activity, BarChart3, ChevronRight } from 'lucide-react';
+import { ShieldAlert, Cpu, Activity } from 'lucide-react';
 
 // Helper to generate default curves
 const generateCurve = (base: number, peak: number, peakHour: number, type: 'bell' | 'inverse') => {
@@ -33,12 +33,9 @@ const App: React.FC = () => {
     scenario: SystemScenario.Normal,
     strategy: SystemStrategy.Arbitrage,
     isDynamicTariff: true,
-    
-    // 24h Data Arrays (Default Profile)
-    hourlyTemp: generateCurve(28, 42, 14, 'bell'),      // 28C night -> 42C day
-    hourlyHumidity: generateCurve(30, 70, 4, 'inverse'), // 70% morning -> 30% afternoon
-    hourlyCloud: Array(24).fill(5),                     // 5% cloud cover static baseline
-
+    hourlyTemp: generateCurve(28, 42, 14, 'bell'),
+    hourlyHumidity: generateCurve(30, 70, 4, 'inverse'),
+    hourlyCloud: Array(24).fill(5),
     maxGridImportMW: 2.0,
     feedInTariffINR: 4.8,
     dieselCapacityMW: 0.5,
@@ -63,18 +60,13 @@ const App: React.FC = () => {
       const text = await analyzeSimulation(results, params);
       setAiAnalysis(text);
     } catch (e) {
-      setAiAnalysis("<p>Intelligence processing failure. Node connectivity timeout.</p>");
+      setAiAnalysis("<div class='p-4 bg-red-50 text-red-600 border border-red-100 rounded font-mono text-xs'>Node connectivity timeout. Check API_KEY.</div>");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
   const isEmergency = params.scenario !== SystemScenario.Normal || params.importOutages.length > 0;
-
-  const handleParamChange = (newParams: SimulationParams) => {
-    setParams(newParams);
-    setAiAnalysis(null);
-  };
 
   return (
     <div className="min-h-screen text-brand-text font-sans selection:bg-brand-primary/20">
@@ -109,7 +101,7 @@ const App: React.FC = () => {
 
       <main className="max-w-[1600px] mx-auto px-6 py-8 space-y-8">
         <section className="animate-slide-up">
-          <InputPanel params={params} onChange={handleParamChange} />
+          <InputPanel params={params} onChange={setParams} />
         </section>
 
         <section className="animate-slide-up stagger-1">
@@ -143,7 +135,7 @@ const App: React.FC = () => {
           <span className="text-brand-border">|</span>
           <span>Latency: 12ms</span>
         </div>
-        <span className="opacity-50">Industrial Design System</span>
+        <span className="opacity-50">GridPilot X Industrial Platform</span>
       </footer>
     </div>
   );
