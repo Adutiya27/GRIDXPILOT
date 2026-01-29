@@ -1,23 +1,23 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SimulationResult, WeatherCondition, SimulationParams } from "../types";
 
-const formatDataForPrompt = (result: SimulationResult, params: SimulationParams) => {
+/**
+ * Formats the simulation results into a compact JSON string for the LLM.
+ */
+const formatDataForPrompt = (result: SimulationResult, params: SimulationParams): string => {
   const avgCloud = params.hourlyCloud.reduce((sum, val) => sum + val, 0) / params.hourlyCloud.length;
   const avgTemp = params.hourlyTemp.reduce((sum, val) => sum + val, 0) / params.hourlyTemp.length;
 
   const summary = {
     meta: {
+      project: "GridPilot X",
+      node: "AGRA",
       scenario: params.scenario,
       weather: params.weather,
       cloudCoverAvg: avgCloud.toFixed(1),
       tempCAvg: avgTemp.toFixed(1),
-      strategy: "Economic Arbitrage (Fixed)"
     },
     audit: result.audit,
-    outages: {
-      import: params.importOutages,
-      export: params.exportOutages
-    },
     telemetry: result.hourlyData.map(h => ({
       t: h.hour,
       load: parseFloat(h.adjustedLoadMW.toFixed(3)),
@@ -31,125 +31,64 @@ const formatDataForPrompt = (result: SimulationResult, params: SimulationParams)
       price: h.priceINR
     }))
   };
-  return JSON.stringify(summary, null, 2);
+  return JSON.stringify(summary);
 };
 
+/**
+ * Analyzes the simulation data using Gemini 3.
+ * Returns an HTML engineered report or a fallback error message.
+ */
 export const analyzeSimulation = async (result: SimulationResult, params: SimulationParams): Promise<string> => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found");
+  if (!apiKey) {
+    console.error("GridPilot X: Missing API_KEY environment variable.");
+    return "<div class='p-4 bg-red-50 text-red-600 rounded-lg border border-red-100 font-mono text-xs'>[SYSTEM ERROR] CRITICAL: Node connectivity failure. API Key not detected in environment.</div>";
+  }
+
   const ai = new GoogleGenAI({ apiKey });
   
   const prompt = `
-    **Role:** You are the Lead Microgrid Systems Engineer for the GridPilot X project.
+    **Role:** Lead Microgrid Systems Engineer for GridPilot X.
+    **Objective:** Perform a Gap Analysis & Power Quality Audit.
     
-    **Objective:** 
-    Perform a "Gap Analysis & Power Quality Audit" specifically focusing on the performance of the **Economic Arbitrage Strategy**.
-    Compare the Actual Net Cost vs the Baseline (Standard) Cost provided in the audit data.
-    
-    **MANDATORY OUTPUT REQUIREMENTS:**
-    
-    1. **Daily Scheduling Algorithm Output:**
-       - Clearly list the schedule: When to CHARGE, When to DISCHARGE, When to USE GRID, When to BLOCK GRID, and DIESEL usage events.
-       - Provide a concise text-based timeline or table representing the 24-hour plan.
-       - Compare planned SoC vs real outcome if applicable.
-       
-    2. **Scheduler Logic Transparency:**
-       - Explain the WHY behind key events.
-       - Format: "Hour X: [Event] -> [Reasoning]"
-       - Example: "Hour 14: Tariff high (₹12.50) → Discharging battery to offset peak."
+    **REQUIRED OUTPUT (HTML Only):**
+    1. **Daily Scheduling Algorithm Output:** Concisely list the 24h plan (Charge/Discharge/Grid/Diesel).
+    2. **Scheduler Logic Transparency:** Format as "Hour X: [Event] -> [Reasoning]".
+    3. **Cost-Optimal Timeline:** Create a horizontal flexbox timeline with colored bars for dominant activities.
+    4. **Scope of Improvement:** Provide 2 concrete technical suggestions.
 
-    3. **Cost-Optimal Schedule Visualization:**
-       - Create a visual representation (using HTML/CSS styled elements like colored bars or a structured list) of the 24-hour cycle showing the dominant source/activity per hour (Grid, Solar, Batt Charge, Batt Discharge, Diesel).
-       - This is a horizontal timeline strip.
-    
-    4. **Scope of Improvement:**
-       - Provide one or two concrete suggestions to further reduce the Total Cost or improve efficiency based on the telemetry.
+    **Context Data:** ${formatDataForPrompt(result, params)}
 
-    **Context Data (JSON):**
-    ${formatDataForPrompt(result, params)}
-
-    **Output Requirement (STRICT HTML for Light Theme):**
-    - **Theme:** INDUSTRIAL LIGHT. Backgrounds must be WHITE or TRANSPARENT. Text must be SLATE-900.
-    - **Layout:** Single vertical flow.
-    - **Styling:**
-        - Headers: <h3> tags with class "text-lg font-bold uppercase tracking-wider text-brand-primary mb-2 mt-6".
-        - Text: <p> tags with class "text-sm text-slate-600 leading-relaxed mb-4".
-        - List Items: <li> tags with class "mb-2 text-sm text-slate-700".
-        - Tables: Use standard <table> with class "w-full text-left text-sm border-collapse mb-4". Headers "bg-slate-50 text-slate-500 font-bold uppercase text-xs p-2 border-b". Cells "p-2 border-b border-slate-100".
-        - Timeline: Use horizontal flexbox with colored divs for the 24h visualization.
-
-    Return raw HTML only. No markdown.
+    **Styling Rules:** Use Industrial Light theme (white bg, slate-900 text). Use Tailwind-like HTML classes. No Markdown.
   `;
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
-      config: {
-        temperature: 0.3, 
-      }
+      config: { temperature: 0.2 }
     });
-    let cleanText = response.text || "Diagnostic failed.";
-    cleanText = cleanText.replace(/```html/g, '').replace(/```/g, '').trim();
-    return cleanText;
+
+    if (!response || !response.text) throw new Error("Empty response from AI");
+    
+    let cleanHtml = response.text.replace(/```html/g, '').replace(/```/g, '').trim();
+    return cleanHtml;
   } catch (error) {
-    console.error(error);
-    return "<div class='p-4 bg-red-50 text-red-600 rounded-lg border border-red-100'><strong>CRITICAL ERROR:</strong> Neural Advisor offline. Node connectivity timeout.</div>";
+    console.error("Gemini Analysis Error:", error);
+    return `
+      <div class="p-6 bg-slate-50 border border-brand-border rounded-lg text-brand-text">
+        <h3 class="text-sm font-bold uppercase mb-2">Audit Interrupted</h3>
+        <p class="text-xs text-brand-text-dim">The Neural Strategist encountered a processing error. Local simulation physics remain valid.</p>
+        <p class="text-[10px] font-mono mt-4 opacity-50">${error instanceof Error ? error.message : "Internal SDK Timeout"}</p>
+      </div>
+    `;
   }
 };
 
-export const fetchAgraWeather = async (): Promise<{ 
-  sunriseHour: number; 
-  sunsetHour: number; 
-  weather: WeatherCondition;
-  temperatureC: number;
-  cloudCoverPercent: number;
-  humidityPercent: number;
-}> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found");
-  const ai = new GoogleGenAI({ apiKey });
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: "Current precise meteorological data for Agra, India.",
-      config: {
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            sunriseTime: { type: Type.STRING },
-            sunsetTime: { type: Type.STRING },
-            weather: { type: Type.STRING, enum: ["Sunny", "Cloudy", "Rainy"] },
-            temperatureC: { type: Type.NUMBER },
-            cloudCoverPercent: { type: Type.NUMBER },
-            humidityPercent: { type: Type.NUMBER }
-          },
-          required: ["sunriseTime", "sunsetTime", "weather", "temperatureC", "cloudCoverPercent", "humidityPercent"]
-        }
-      }
-    });
-    const data = JSON.parse(response.text);
-    const toDecimal = (t: string) => {
-      const parts = t.split(':');
-      const h = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      return h + (m / 60);
-    };
-    return { 
-      sunriseHour: toDecimal(data.sunriseTime), 
-      sunsetHour: toDecimal(data.sunsetTime), 
-      weather: data.weather as WeatherCondition,
-      temperatureC: data.temperatureC,
-      cloudCoverPercent: data.cloudCoverPercent,
-      humidityPercent: data.humidityPercent
-    };
-  } catch (e) {
-    return { sunriseHour: 6, sunsetHour: 18, weather: WeatherCondition.Sunny, temperatureC: 30, cloudCoverPercent: 10, humidityPercent: 40 };
-  }
-};
-
+/**
+ * Fetches hourly weather forecast for Agra.
+ * Returns a robust fallback if API fails.
+ */
 export const fetchHourlyWeather = async (): Promise<{
   hourlyTemp: number[];
   hourlyHumidity: number[];
@@ -158,16 +97,18 @@ export const fetchHourlyWeather = async (): Promise<{
   sunsetHour: number;
 }> => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found");
-  const ai = new GoogleGenAI({ apiKey });
+  const defaultData = {
+    hourlyTemp: Array(24).fill(30).map((t, i) => t + Math.sin((i - 6) * Math.PI / 12) * 10),
+    hourlyHumidity: Array(24).fill(50),
+    hourlyCloud: Array(24).fill(10),
+    sunriseHour: 6.0,
+    sunsetHour: 18.5
+  };
 
-  const prompt = `
-    Get the hourly weather forecast for Agra, India for today. 
-    I need the Temperature (Celsius), Humidity (%), and Cloud Cover (%) for every hour from 00:00 to 23:00 (24 data points). 
-    Also find the local Sunrise and Sunset times for today.
-    
-    Important: ensure arrays have exactly 24 numbers.
-  `;
+  if (!apiKey) return defaultData;
+
+  const ai = new GoogleGenAI({ apiKey });
+  const prompt = "Get 24-hour forecast for Agra, India: Temperature (C), Humidity (%), Cloud Cover (%). Also Sunrise/Sunset times.";
 
   try {
     const response = await ai.models.generateContent({
@@ -182,8 +123,8 @@ export const fetchHourlyWeather = async (): Promise<{
             hourlyTemp: { type: Type.ARRAY, items: { type: Type.NUMBER } },
             hourlyHumidity: { type: Type.ARRAY, items: { type: Type.NUMBER } },
             hourlyCloud: { type: Type.ARRAY, items: { type: Type.NUMBER } },
-            sunriseTime: { type: Type.STRING, description: "Format HH:MM in 24h format" },
-            sunsetTime: { type: Type.STRING, description: "Format HH:MM in 24h format" }
+            sunriseTime: { type: Type.STRING },
+            sunsetTime: { type: Type.STRING }
           },
           required: ["hourlyTemp", "hourlyHumidity", "hourlyCloud", "sunriseTime", "sunsetTime"]
         }
@@ -191,33 +132,20 @@ export const fetchHourlyWeather = async (): Promise<{
     });
 
     const data = JSON.parse(response.text);
-    
-    const validate = (arr: any[]) => {
-        if (!arr || !Array.isArray(arr)) return Array(24).fill(0);
-        if (arr.length === 24) return arr;
-        if (arr.length > 24) return arr.slice(0, 24);
-        const last = arr[arr.length - 1] || 0;
-        return [...arr, ...Array(24 - arr.length).fill(last)];
-    };
-
     const toDecimal = (t: string) => {
-      if (!t) return 6;
-      const parts = t.split(':');
-      const h = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      return h + (m / 60);
+      const parts = (t || "06:00").split(':');
+      return parseInt(parts[0]) + (parseInt(parts[1]) / 60);
     };
 
     return {
-      hourlyTemp: validate(data.hourlyTemp),
-      hourlyHumidity: validate(data.hourlyHumidity),
-      hourlyCloud: validate(data.hourlyCloud),
+      hourlyTemp: data.hourlyTemp.slice(0, 24),
+      hourlyHumidity: data.hourlyHumidity.slice(0, 24),
+      hourlyCloud: data.hourlyCloud.slice(0, 24),
       sunriseHour: toDecimal(data.sunriseTime),
       sunsetHour: toDecimal(data.sunsetTime)
     };
-
   } catch (error) {
-    console.error("Weather fetch failed", error);
-    throw new Error("Failed to fetch hourly weather data");
+    console.warn("Weather sync failed, using default Agra profile.", error);
+    return defaultData;
   }
 };
