@@ -1,7 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SimulationResult, WeatherCondition, SimulationParams } from "../types";
 
-// --- Helper: Format Data for the Prompt ---
 const formatDataForPrompt = (result: SimulationResult, params: SimulationParams) => {
   const avgCloud = params.hourlyCloud.reduce((sum, val) => sum + val, 0) / params.hourlyCloud.length;
   const avgTemp = params.hourlyTemp.reduce((sum, val) => sum + val, 0) / params.hourlyTemp.length;
@@ -35,23 +34,16 @@ const formatDataForPrompt = (result: SimulationResult, params: SimulationParams)
   return JSON.stringify(summary, null, 2);
 };
 
-// --- Main Analysis Function ---
 export const analyzeSimulation = async (result: SimulationResult, params: SimulationParams): Promise<string> => {
-  // FIX 1: Use Vite-compatible Environment Variable
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  
-  if (!apiKey) {
-    console.error("API Key missing. Check Netlify Environment Variables.");
-    throw new Error("API Key not found");
-  }
-
-  // FIX 2: Initialize with object syntax for @google/genai
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API Key not found");
   const ai = new GoogleGenAI({ apiKey });
   
   const prompt = `
     **Role:** You are the Lead Microgrid Systems Engineer for the GridPilot X project.
     
-    **Objective:** Perform a "Gap Analysis & Power Quality Audit" specifically focusing on the performance of the **Economic Arbitrage Strategy**.
+    **Objective:** 
+    Perform a "Gap Analysis & Power Quality Audit" specifically focusing on the performance of the **Economic Arbitrage Strategy**.
     Compare the Actual Net Cost vs the Baseline (Standard) Cost provided in the audit data.
     
     **MANDATORY OUTPUT REQUIREMENTS:**
@@ -59,17 +51,16 @@ export const analyzeSimulation = async (result: SimulationResult, params: Simula
     1. **Daily Scheduling Algorithm Output:**
        - Clearly list the schedule: When to CHARGE, When to DISCHARGE, When to USE GRID, When to BLOCK GRID, and DIESEL usage events.
        - Provide a concise text-based timeline or table representing the 24-hour plan.
-       - Compare planned SoC vs real outcome if applicable (or note stability).
+       - Compare planned SoC vs real outcome if applicable.
        
     2. **Scheduler Logic Transparency:**
        - Explain the WHY behind key events.
        - Format: "Hour X: [Event] -> [Reasoning]"
        - Example: "Hour 14: Tariff high (₹12.50) → Discharging battery to offset peak."
-       - Example: "Hour 02: Tariff low (₹4.20) + Solar Forecast Low → Charging from Grid."
 
     3. **Cost-Optimal Schedule Visualization:**
        - Create a visual representation (using HTML/CSS styled elements like colored bars or a structured list) of the 24-hour cycle showing the dominant source/activity per hour (Grid, Solar, Batt Charge, Batt Discharge, Diesel).
-       - This is the MOST important visual. Make it look like a timeline strip.
+       - This is a horizontal timeline strip.
     
     4. **Scope of Improvement:**
        - Provide one or two concrete suggestions to further reduce the Total Cost or improve efficiency based on the telemetry.
@@ -79,7 +70,6 @@ export const analyzeSimulation = async (result: SimulationResult, params: Simula
 
     **Output Requirement (STRICT HTML for Light Theme):**
     - **Theme:** INDUSTRIAL LIGHT. Backgrounds must be WHITE or TRANSPARENT. Text must be SLATE-900.
-    - **Forbidden:** Do NOT use black backgrounds, neon text, or dark mode styling. Do NOT use columns.
     - **Layout:** Single vertical flow.
     - **Styling:**
         - Headers: <h3> tags with class "text-lg font-bold uppercase tracking-wider text-brand-primary mb-2 mt-6".
@@ -92,27 +82,22 @@ export const analyzeSimulation = async (result: SimulationResult, params: Simula
   `;
 
   try {
-   // Find this block
-const response = await ai.models.generateContent({
-  model: 'gemini-1.5-flash-001', // <--- UPDATED LINE
-  contents: prompt,
-  // ... rest of code
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
       config: {
         temperature: 0.3, 
       }
     });
-    
     let cleanText = response.text || "Diagnostic failed.";
     cleanText = cleanText.replace(/```html/g, '').replace(/```/g, '').trim();
     return cleanText;
-
   } catch (error) {
-    console.error("Analysis Error:", error);
+    console.error(error);
     return "<div class='p-4 bg-red-50 text-red-600 rounded-lg border border-red-100'><strong>CRITICAL ERROR:</strong> Neural Advisor offline. Node connectivity timeout.</div>";
   }
 };
 
-// --- Weather Fetch (Legacy/Agra) ---
 export const fetchAgraWeather = async (): Promise<{ 
   sunriseHour: number; 
   sunsetHour: number; 
@@ -121,17 +106,15 @@ export const fetchAgraWeather = async (): Promise<{
   cloudCoverPercent: number;
   humidityPercent: number;
 }> => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY; // Fixed Key
+  const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API Key not found");
-  
   const ai = new GoogleGenAI({ apiKey });
-  
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash', // Fixed Model
+      model: 'gemini-3-flash-preview',
       contents: "Current precise meteorological data for Agra, India.",
       config: {
-        tools: [{ googleSearch: {} }], // Tools inside config
+        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -147,10 +130,6 @@ export const fetchAgraWeather = async (): Promise<{
         }
       }
     });
-
-    // Check if valid text was returned
-    if (!response.text) throw new Error("Empty response from AI");
-    
     const data = JSON.parse(response.text);
     const toDecimal = (t: string) => {
       const parts = t.split(':');
@@ -167,12 +146,10 @@ export const fetchAgraWeather = async (): Promise<{
       humidityPercent: data.humidityPercent
     };
   } catch (e) {
-    console.warn("Weather fetch failed, using fallback:", e);
     return { sunriseHour: 6, sunsetHour: 18, weather: WeatherCondition.Sunny, temperatureC: 30, cloudCoverPercent: 10, humidityPercent: 40 };
   }
 };
 
-// --- Hourly Weather Fetch ---
 export const fetchHourlyWeather = async (): Promise<{
   hourlyTemp: number[];
   hourlyHumidity: number[];
@@ -180,9 +157,8 @@ export const fetchHourlyWeather = async (): Promise<{
   sunriseHour: number;
   sunsetHour: number;
 }> => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY; // Fixed Key
+  const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API Key not found");
-  
   const ai = new GoogleGenAI({ apiKey });
 
   const prompt = `
@@ -195,9 +171,9 @@ export const fetchHourlyWeather = async (): Promise<{
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash', // Fixed Model
+      model: 'gemini-3-flash-preview',
       contents: prompt,
-      config: { // Correct nesting for @google/genai
+      config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
@@ -214,11 +190,8 @@ export const fetchHourlyWeather = async (): Promise<{
       }
     });
 
-    if (!response.text) throw new Error("No data returned from AI");
-    
     const data = JSON.parse(response.text);
     
-    // Helper to validate array length
     const validate = (arr: any[]) => {
         if (!arr || !Array.isArray(arr)) return Array(24).fill(0);
         if (arr.length === 24) return arr;
@@ -244,8 +217,7 @@ export const fetchHourlyWeather = async (): Promise<{
     };
 
   } catch (error) {
-    console.error("Hourly Weather fetch failed:", error);
-    // Use throw to trigger fallback in UI, or return defaults here if preferred
+    console.error("Weather fetch failed", error);
     throw new Error("Failed to fetch hourly weather data");
   }
 };
